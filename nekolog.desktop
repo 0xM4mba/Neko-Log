@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=NekoLog (ログニャン)
+GenericName=Anime Linux Log Viewer
+Comment=Kawaii & Fun Linux Log Viewer with animated mascot and effects
+Exec=nekolog
+Icon=nekolog
+Terminal=false
+Type=Application
+Categories=System;Monitor;Utility;
+Keywords=log;logs;viewer;journalctl;syslog;anime;neko;
+StartupNotify=true
