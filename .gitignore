@@ -2,3 +2,6 @@
 nekolog
 *.json
 *.txt
+/AppDir/
+*.AppImage
+

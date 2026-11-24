@@ -1,0 +1,79 @@
+name: Build & Release AppImage
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-appimage:
+    name: Build AppImage
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
+
+      - name: Build Release Binary
+        run: cargo build --release
+
+      - name: Download AppImage Tools
+        run: |
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract
+          wget -q https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 -O /tmp/runtime-x86_64
+
+      - name: Package AppImage
+        run: |
+          APPDIR="AppDir"
+          mkdir -p "$APPDIR/usr/bin"
+          cp "target/release/nekolog" "$APPDIR/usr/bin/nekolog"
+          chmod +x "$APPDIR/usr/bin/nekolog"
+          cp "nekolog.desktop" "$APPDIR/nekolog.desktop"
+          cp "nekolog.png" "$APPDIR/nekolog.png"
+          cp "nekolog.png" "$APPDIR/.DirIcon"
+          
+          cat << 'EOF' > "$APPDIR/AppRun"
+          #!/bin/sh
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          exec "${HERE}/usr/bin/nekolog" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+          ARCH=x86_64 ./squashfs-root/AppRun --runtime-file /tmp/runtime-x86_64 "$APPDIR" "neko-log-v1.AppImage"
+          chmod +x neko-log-v1.AppImage
+
+      - name: Create GitHub Release and Upload AppImage
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: neko-log-v1.AppImage
+          name: Release ${{ github.ref_name }}
+          body: |
+            🌸 **NekoLog (ログニャン) - Anime Linux Log Viewer**
+            
+            ### 🚀 Download & Run:
+            1. Download `neko-log-v1.AppImage` below.
+            2. Make it executable:
+               ```bash
+               chmod +x neko-log-v1.AppImage
+               ./neko-log-v1.AppImage
+               ```
+            Runs on any Linux distribution (Ubuntu, Debian, Fedora, Arch, openSUSE, Mint, etc.)! ✨
+          draft: false
+          prerelease: false
