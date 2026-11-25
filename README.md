@@ -50,6 +50,11 @@ Designed to run natively across **any Linux distribution** (Ubuntu, Debian, Fedo
   - Click any log entry to view full multi-line details, copy raw output to clipboard, and view Neko-chan's automated diagnosis!
 - **Exporting**: One-click export of filtered logs to formatted `JSON` or raw `TXT`.
 
+### 🚀 5. Built-in Auto-Updater
+- **Automatic Update Checking**: Queries GitHub Releases (`0xM4mba/Neko-Log`) non-blockingly on launch.
+- **One-Click In-App Upgrade**: Click **"🚀 Install Update Now"** to automatically download the latest `neko-log-v1.AppImage`, verify permissions, replace the file, and restart into the new version seamlessly!
+- **Manual Check**: Click `[🔄 Check Update]` in the top bar anytime to view release notes and upgrade.
+
 ---
 
 ## 🚀 Running NekoLog

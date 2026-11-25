@@ -5,6 +5,7 @@ mod log_source;
 mod mascot;
 mod particles;
 mod theme;
+mod updater;
 
 use app::NekoLogApp;
 use egui::Vec2;

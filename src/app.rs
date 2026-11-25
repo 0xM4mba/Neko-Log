@@ -5,6 +5,7 @@ use egui::{
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::Instant;
 
 use crate::file_dialog::AnimeFileDialog;
@@ -13,6 +14,7 @@ use crate::log_source::{LogSourceManager, SourceKind};
 use crate::mascot::AnimeMascot;
 use crate::particles::ParticleSystem;
 use crate::theme::{configure_egui_style, ThemeMode};
+use crate::updater::{restart_application, UpdateInfo, UpdateManager, UpdateStatus};
 
 pub struct NekoLogApp {
     // Theme & Visuals
@@ -34,6 +36,9 @@ pub struct NekoLogApp {
     log_mgr: LogSourceManager,
     discovered_logs: Vec<PathBuf>,
     file_dialog: AnimeFileDialog,
+
+    // Auto-Updater
+    pub updater: UpdateManager,
 
     // Statistics & Timing
     error_count: usize,
@@ -86,6 +91,11 @@ impl NekoLogApp {
             log_mgr,
             discovered_logs,
             file_dialog: AnimeFileDialog::new(),
+            updater: {
+                let mut u = UpdateManager::new();
+                u.start_check(); // Auto-check updates on startup in background
+                u
+            },
 
             error_count: 0,
             warn_count: 0,
@@ -226,6 +236,9 @@ impl eframe::App for NekoLogApp {
         // Update mascot state
         self.mascot.update(dt, self.error_count, self.warn_count, self.entries.len());
 
+        // Update auto-updater background tasks
+        self.updater.update();
+
         let p = self.theme_mode.palette();
 
         // 1. TOP HEADER PANEL (Responsive multi-row layout without overlapping)
@@ -250,13 +263,55 @@ impl eframe::App for NekoLogApp {
                         );
                     }
 
-                    // Push theme and particle controls to the right if space allows
-                    let right_controls_width = 300.0;
+                    // Push theme, updater, and particle controls to the right if space allows
+                    let right_controls_width = 410.0;
                     if ui.available_width() > right_controls_width {
                         ui.add_space(ui.available_width() - right_controls_width);
                     }
 
                     ui.horizontal(|ui| {
+                        // Update Indicator Button
+                        match &self.updater.status {
+                            UpdateStatus::UpdateAvailable(info) => {
+                                let pulse = ((self.total_time * 5.0).sin().abs()) as f32;
+                                let btn_color = Color32::from_rgb(
+                                    (100.0 + 155.0 * pulse) as u8,
+                                    255,
+                                    (150.0 + 105.0 * pulse) as u8,
+                                );
+                                let btn = egui::Button::new(
+                                    RichText::new(format!("✨ Update: v{}!", info.version))
+                                        .color(Color32::BLACK)
+                                        .strong(),
+                                ).fill(btn_color);
+                                if ui.add(btn).clicked() {
+                                    self.updater.show_update_dialog = true;
+                                }
+                            }
+                            UpdateStatus::Downloading { progress, .. } => {
+                                let btn = egui::Button::new(format!("⬇️ {:.0}%", progress * 100.0)).fill(p.accent_purple);
+                                if ui.add(btn).clicked() {
+                                    self.updater.show_update_dialog = true;
+                                }
+                            }
+                            UpdateStatus::ReadyToRestart { .. } => {
+                                let btn = egui::Button::new(
+                                    RichText::new("🔄 Restart App!")
+                                        .color(Color32::BLACK)
+                                        .strong(),
+                                ).fill(p.accent_cyan);
+                                if ui.add(btn).clicked() {
+                                    self.updater.show_update_dialog = true;
+                                }
+                            }
+                            _ => {
+                                if ui.button("🔄 Check Update").clicked() {
+                                    self.updater.start_check();
+                                    self.updater.show_update_dialog = true;
+                                }
+                            }
+                        }
+
                         // Theme Mode Selector
                         egui::ComboBox::from_id_salt("theme_selector")
                             .selected_text(self.theme_mode.name())
@@ -897,6 +952,189 @@ impl eframe::App for NekoLogApp {
             self.warn_count = 0;
             self.selected_entry_idx = None;
             self.log_mgr.switch_source(src, true);
+        }
+
+        // 7. RENDER SOFTWARE UPDATE MODAL DIALOG
+        if self.updater.show_update_dialog {
+            let mut close_dialog = false;
+            let mut start_download_info: Option<UpdateInfo> = None;
+            let mut trigger_check = false;
+            let current_v = self.updater.current_version.clone();
+
+            egui::Window::new("🌸 NekoLog Software Update // ソフトウェア更新")
+                .collapsible(false)
+                .resizable(false)
+                .default_size(vec2(500.0, 320.0))
+                .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.vertical(|ui| {
+                        match &self.updater.status {
+                            UpdateStatus::Checking => {
+                                ui.add_space(20.0);
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(
+                                        RichText::new("Checking GitHub for the latest release...")
+                                            .font(FontId::proportional(14.0))
+                                            .color(p.accent_cyan),
+                                    );
+                                });
+                                ui.add_space(20.0);
+                            }
+                            UpdateStatus::UpToDate => {
+                                ui.add_space(10.0);
+                                ui.label(
+                                    RichText::new("✨ NekoLog is up to date! (✿◠‿◠)")
+                                        .font(FontId::proportional(15.0))
+                                        .color(p.accent_green)
+                                        .strong(),
+                                );
+                                ui.add_space(6.0);
+                                ui.label(format!("You are running the newest version: v{}", current_v));
+                                ui.colored_label(
+                                    p.text_muted,
+                                    "All system monitors and anime engines are running the latest code.",
+                                );
+                                ui.add_space(15.0);
+                                if ui.button("✓ Close").clicked() {
+                                    close_dialog = true;
+                                }
+                            }
+                            UpdateStatus::UpdateAvailable(info) => {
+                                ui.label(
+                                    RichText::new(format!("🎉 New Version Available: v{}! ✨", info.version))
+                                        .font(FontId::proportional(16.0))
+                                        .color(p.accent_pink)
+                                        .strong(),
+                                );
+                                ui.label(format!("Current version: v{} ➔ New version: v{}", current_v, info.version));
+                                ui.separator();
+
+                                ui.label(
+                                    RichText::new("Release Notes:")
+                                        .font(FontId::proportional(13.0))
+                                        .color(p.accent_purple)
+                                        .strong(),
+                                );
+                                ScrollArea::vertical().max_height(110.0).show(ui, |ui| {
+                                    let notes = if info.release_notes.is_empty() {
+                                        "Bug fixes, performance boosts, and visual enhancements nya~"
+                                    } else {
+                                        &info.release_notes
+                                    };
+                                    ui.label(notes);
+                                });
+
+                                ui.add_space(10.0);
+                                ui.separator();
+
+                                ui.horizontal(|ui| {
+                                    if info.download_url.is_some() {
+                                        let update_btn = egui::Button::new(
+                                            RichText::new("🚀 Install Update Now")
+                                                .color(Color32::BLACK)
+                                                .font(FontId::proportional(13.0))
+                                                .strong(),
+                                        )
+                                        .fill(p.accent_green);
+
+                                        if ui.add(update_btn).clicked() {
+                                            start_download_info = Some(info.clone());
+                                        }
+                                    }
+
+                                    if !info.html_url.is_empty() {
+                                        if ui.button("🌐 View on GitHub").clicked() {
+                                            let _ = Command::new("xdg-open").arg(&info.html_url).spawn();
+                                        }
+                                    }
+
+                                    if ui.button("❌ Later").clicked() {
+                                        close_dialog = true;
+                                    }
+                                });
+                            }
+                            UpdateStatus::Downloading { progress, message } => {
+                                ui.add_space(15.0);
+                                ui.label(
+                                    RichText::new("⬇️ Downloading Update...")
+                                        .font(FontId::proportional(15.0))
+                                        .color(p.accent_cyan)
+                                        .strong(),
+                                );
+                                ui.add_space(8.0);
+                                ui.add(egui::ProgressBar::new(*progress).show_percentage().animate(true));
+                                ui.add_space(6.0);
+                                ui.label(message);
+                                ui.colored_label(
+                                    p.text_muted,
+                                    "Please wait while the new AppImage is downloaded and verified.",
+                                );
+                            }
+                            UpdateStatus::ReadyToRestart { path, version } => {
+                                ui.add_space(10.0);
+                                ui.label(
+                                    RichText::new(format!("🌸 Update to v{} Complete! (★ω★)", version))
+                                        .font(FontId::proportional(16.0))
+                                        .color(p.accent_green)
+                                        .strong(),
+                                );
+                                ui.add_space(6.0);
+                                ui.label("The new version has been installed to your file system.");
+                                ui.label("Restart NekoLog to apply the update immediately.");
+                                ui.add_space(15.0);
+
+                                ui.horizontal(|ui| {
+                                    let restart_btn = egui::Button::new(
+                                        RichText::new("🔄 Restart NekoLog Now")
+                                            .color(Color32::BLACK)
+                                            .font(FontId::proportional(13.0))
+                                            .strong(),
+                                    )
+                                    .fill(p.accent_cyan);
+
+                                    if ui.add(restart_btn).clicked() {
+                                        restart_application(path);
+                                    }
+
+                                    if ui.button("Close (Restart Later)").clicked() {
+                                        close_dialog = true;
+                                    }
+                                });
+                            }
+                            UpdateStatus::Error(e) => {
+                                ui.add_space(10.0);
+                                ui.colored_label(p.accent_red, format!("⚠️ Update check error: {}", e));
+                                ui.add_space(6.0);
+                                ui.label("Make sure your internet connection is active or try checking again.");
+                                ui.add_space(15.0);
+                                ui.horizontal(|ui| {
+                                    if ui.button("🔄 Retry").clicked() {
+                                        trigger_check = true;
+                                    }
+                                    if ui.button("Close").clicked() {
+                                        close_dialog = true;
+                                    }
+                                });
+                            }
+                            UpdateStatus::Idle => {
+                                if ui.button("🔄 Check for Updates Now").clicked() {
+                                    trigger_check = true;
+                                }
+                            }
+                        }
+                    });
+                });
+
+            if let Some(info) = start_download_info {
+                self.updater.start_download(&info);
+            }
+            if trigger_check {
+                self.updater.start_check();
+            }
+            if close_dialog {
+                self.updater.show_update_dialog = false;
+            }
         }
 
         // Request repaint for smooth 60 FPS animations (mascot blinking, breathing, tail sway, sakura particles)
