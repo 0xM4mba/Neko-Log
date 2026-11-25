@@ -40,23 +40,26 @@ exec "${HERE}/usr/bin/nekolog" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-# 7. Package using appimagetool
-APPIMAGETOOL="/tmp/appimagetool-extracted/AppRun"
-if [ ! -f "$APPIMAGETOOL" ]; then
-    if command -v appimagetool >/dev/null 2>&1; then
-        APPIMAGETOOL="appimagetool"
-    else
-        echo "❌ appimagetool not found. Please install appimagetool or download it."
-        exit 1
-    fi
+# 7. Ensure appimagetool and runtime exist in .tools
+TOOLS_DIR="$DIR/.tools"
+mkdir -p "$TOOLS_DIR"
+
+if [ ! -d "$TOOLS_DIR/appimagetool-extracted" ]; then
+    echo "⬇️ Downloading appimagetool..."
+    curl -L -o "$TOOLS_DIR/appimagetool.AppImage" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+    chmod +x "$TOOLS_DIR/appimagetool.AppImage"
+    (cd "$TOOLS_DIR" && ./appimagetool.AppImage --appimage-extract && mv squashfs-root appimagetool-extracted && rm -f appimagetool.AppImage)
 fi
 
-EXTRA_ARGS=""
-if [ -f "/tmp/runtime-x86_64" ]; then
-    EXTRA_ARGS="--runtime-file /tmp/runtime-x86_64"
+if [ ! -f "$TOOLS_DIR/runtime-x86_64" ]; then
+    echo "⬇️ Downloading runtime-x86_64..."
+    curl -L -o "$TOOLS_DIR/runtime-x86_64" https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
 fi
 
-ARCH=x86_64 "$APPIMAGETOOL" $EXTRA_ARGS "$APPDIR" "$DIR/neko-log-v1.AppImage"
+APPIMAGETOOL="$TOOLS_DIR/appimagetool-extracted/AppRun"
+RUNTIME_FILE="$TOOLS_DIR/runtime-x86_64"
+
+ARCH=x86_64 "$APPIMAGETOOL" --runtime-file "$RUNTIME_FILE" "$APPDIR" "$DIR/neko-log-v1.AppImage"
 
 echo "✨ Successfully generated: $DIR/neko-log-v1.AppImage"
 chmod +x "$DIR/neko-log-v1.AppImage"

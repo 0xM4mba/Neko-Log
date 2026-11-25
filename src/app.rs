@@ -228,27 +228,62 @@ impl eframe::App for NekoLogApp {
 
         let p = self.theme_mode.palette();
 
-        // 1. TOP HEADER PANEL
+        // 1. TOP HEADER PANEL (Responsive multi-row layout without overlapping)
         TopBottomPanel::top("top_header_panel")
-            .frame(egui::Frame::none().fill(p.bg_panel).inner_margin(egui::Margin::symmetric(14.0, 10.0)))
+            .frame(egui::Frame::none().fill(p.bg_panel).inner_margin(egui::Margin::symmetric(14.0, 8.0)))
             .show(ctx, |ui| {
+                // Row 1: Brand & Visual Theme Controls
                 ui.horizontal(|ui| {
-                    // Anime Logo with glowing text
                     ui.label(
                         RichText::new("🌸 NEKO-LOG // ログニャン")
-                            .font(FontId::proportional(18.0))
+                            .font(FontId::proportional(17.0))
                             .color(p.accent_pink)
                             .strong(),
                     );
 
-                    ui.label(
-                        RichText::new("Linux System Log Inspector")
-                            .font(FontId::proportional(12.0))
-                            .color(p.text_muted),
-                    );
+                    // Show subtitle only if width is sufficient to avoid crowding
+                    if ui.available_width() > 420.0 {
+                        ui.label(
+                            RichText::new("Linux System Log Inspector")
+                                .font(FontId::proportional(11.5))
+                                .color(p.text_muted),
+                        );
+                    }
 
-                    ui.add_space(12.0);
+                    // Push theme and particle controls to the right if space allows
+                    let right_controls_width = 300.0;
+                    if ui.available_width() > right_controls_width {
+                        ui.add_space(ui.available_width() - right_controls_width);
+                    }
 
+                    ui.horizontal(|ui| {
+                        // Theme Mode Selector
+                        egui::ComboBox::from_id_salt("theme_selector")
+                            .selected_text(self.theme_mode.name())
+                            .show_ui(ui, |ui| {
+                                for theme in ThemeMode::ALL {
+                                    if ui.selectable_value(&mut self.theme_mode, theme, theme.name()).clicked() {
+                                        configure_egui_style(ctx, self.theme_mode);
+                                    }
+                                }
+                            });
+
+                        // Particle Toggle
+                        let petal_label = if self.particles.enabled {
+                            "🌸 Petals: ON"
+                        } else {
+                            "🌸 Petals: OFF"
+                        };
+                        if ui.button(petal_label).clicked() {
+                            self.particles.enabled = !self.particles.enabled;
+                        }
+                    });
+                });
+
+                ui.add_space(5.0);
+
+                // Row 2: Stream Controls & Export Actions (horizontal_wrapped prevents ANY collision/overlap on resize!)
+                ui.horizontal_wrapped(|ui| {
                     // Animated Live Status Beacon
                     let is_streaming = self.log_mgr.is_streaming;
                     let pulse = ((self.total_time * 4.0).sin().abs()) as f32;
@@ -305,44 +340,23 @@ impl eframe::App for NekoLogApp {
                         self.selected_entry_idx = None;
                     }
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // Particle Toggle
-                        let petal_label = if self.particles.enabled {
-                            "🌸 Sakura Petals: ON"
-                        } else {
-                            "🌸 Sakura Petals: OFF"
-                        };
-                        if ui.button(petal_label).clicked() {
-                            self.particles.enabled = !self.particles.enabled;
-                        }
+                    ui.separator();
 
-                        // Theme Mode Selector
-                        egui::ComboBox::from_id_salt("theme_selector")
-                            .selected_text(self.theme_mode.name())
-                            .show_ui(ui, |ui| {
-                                for theme in ThemeMode::ALL {
-                                    if ui.selectable_value(&mut self.theme_mode, theme, theme.name()).clicked() {
-                                        configure_egui_style(ctx, self.theme_mode);
-                                    }
-                                }
-                            });
-
-                        // Export Options
-                        if ui.button("💾 Export JSON").clicked() {
-                            self.export_logs_json();
-                        }
-                        if ui.button("📄 Export TXT").clicked() {
-                            self.export_logs_text();
-                        }
-                    });
+                    // Export Options
+                    if ui.button("💾 Export JSON").clicked() {
+                        self.export_logs_json();
+                    }
+                    if ui.button("📄 Export TXT").clicked() {
+                        self.export_logs_text();
+                    }
                 });
             });
 
-        // 2. BOTTOM STATUS BAR
+        // 2. BOTTOM STATUS BAR (Wrapped to prevent overlap on small screens)
         TopBottomPanel::bottom("bottom_status_panel")
             .frame(egui::Frame::none().fill(p.bg_panel).inner_margin(egui::Margin::symmetric(14.0, 6.0)))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(
                         RichText::new(format!("📊 Total: {} lines", self.entries.len()))
                             .font(FontId::proportional(12.0))
@@ -383,37 +397,37 @@ impl eframe::App for NekoLogApp {
 
                     // Toast Notification Banner
                     if let Some((ref msg, _)) = self.notification {
-                        ui.add_space(16.0);
+                        ui.separator();
                         ui.label(
                             RichText::new(msg)
-                                .font(FontId::proportional(12.5))
+                                .font(FontId::proportional(12.0))
                                 .color(p.accent_pink)
                                 .strong(),
                         );
                     }
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let kaomoji = if self.error_count > 0 {
-                            "(ノ°Д°）ノ [Critical Alert!]"
-                        } else if self.warn_count > 0 {
-                            "(；^ω^) [Checking Warnings]"
-                        } else {
-                            "(✿◠‿◠) [All Nominal Nya~]"
-                        };
-                        ui.label(
-                            RichText::new(kaomoji)
-                                .font(FontId::proportional(12.0))
-                                .color(p.accent_purple),
-                        );
+                    ui.separator();
 
-                        ui.separator();
+                    let kaomoji = if self.error_count > 0 {
+                        "(ノ°Д°）ノ [Critical Alert!]"
+                    } else if self.warn_count > 0 {
+                        "(；^ω^) [Checking Warnings]"
+                    } else {
+                        "(✿◠‿◠) [All Nominal Nya~]"
+                    };
+                    ui.label(
+                        RichText::new(kaomoji)
+                            .font(FontId::proportional(12.0))
+                            .color(p.accent_purple),
+                    );
 
-                        ui.label(
-                            RichText::new(format!("Source: {}", self.log_mgr.current_source.display_name()))
-                                .font(FontId::proportional(11.5))
-                                .color(p.text_muted),
-                        );
-                    });
+                    ui.separator();
+
+                    ui.label(
+                        RichText::new(format!("Source: {}", self.log_mgr.current_source.display_name()))
+                            .font(FontId::proportional(11.5))
+                            .color(p.text_muted),
+                    );
                 });
             });
 
@@ -628,8 +642,8 @@ impl eframe::App for NekoLogApp {
                 let painter = ui.painter_at(bg_rect);
                 self.particles.paint(&painter);
 
-                // Search & Control Bar
-                ui.horizontal(|ui| {
+                // Search & Control Bar (Wrapped to prevent overlap on window resize)
+                ui.horizontal_wrapped(|ui| {
                     ui.label(
                         RichText::new("🔍 Search:")
                             .font(FontId::proportional(13.0))
@@ -640,7 +654,7 @@ impl eframe::App for NekoLogApp {
                     let search_resp = ui.add(
                         TextEdit::singleline(&mut self.search_query)
                             .hint_text("Filter keywords, IP, process, error messages...")
-                            .desired_width(280.0),
+                            .desired_width(220.0),
                     );
                     if search_resp.changed() {
                         self.recompute_filters();
@@ -664,9 +678,8 @@ impl eframe::App for NekoLogApp {
                         );
                     }
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.checkbox(&mut self.auto_scroll_to_bottom, "📌 Auto-Scroll Bottom");
-                    });
+                    ui.separator();
+                    ui.checkbox(&mut self.auto_scroll_to_bottom, "📌 Auto-Scroll Bottom");
                 });
 
                 ui.add_space(6.0);

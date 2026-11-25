@@ -4,4 +4,5 @@ nekolog
 *.txt
 /AppDir/
 *.AppImage
+/.tools/
 

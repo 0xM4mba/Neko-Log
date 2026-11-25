@@ -16,9 +16,10 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
+            .with_app_id("nekolog")
             .with_title("🌸 NekoLog // ログニャン - Anime Linux Log Viewer")
             .with_inner_size(Vec2::new(1220.0, 780.0))
-            .with_min_inner_size(Vec2::new(850.0, 520.0))
+            .with_min_inner_size(Vec2::new(720.0, 460.0))
             .with_icon(icon),
         ..Default::default()
     };
